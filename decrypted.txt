@@ -1,0 +1,3 @@
+RSA laboratory exercise.
+This file demonstrates block-wise RSA encryption for 10-character ASCII blocks.
+Repeat blocks appear so we can observe deterministic ciphertext.
