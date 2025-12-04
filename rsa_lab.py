@@ -1,7 +1,5 @@
-"""Program edukacyjny pokazujacy od podstaw dzialanie RSA z opisanymi
-obowiazkowymi eksperymentami i obsluga plikow.  Wszystkie elementy zostaly
-odseparowane w klasy/funkcje o jednej odpowiedzialnosci, aby latwiej bylo
-powiazac kod z zasadami SOLID/DRY/KISS."""
+# Implementacja RSA na potrzeby zadania laboratoryjnego.
+# Autor: Patryk Dudek
 
 from __future__ import annotations
 
@@ -15,49 +13,30 @@ from typing import List, Sequence
 # Podstawowe narzedzia arytmetyczne
 # ---------------------------------------------------------------------------
 
-
-@dataclass
-class RSAKey:
-    """Prosty kontener na parametry klucza RSA."""
-
-    p: int
-    q: int
-    n: int
-    phi: int
-    e: int
-    d: int
-
-    @property
-    def bit_length(self) -> int:
-        """Liczba bitow modulu n, pomocna przy raportowaniu rozmiaru klucza."""
-
-        return self.n.bit_length()
-
-
-SMALL_PRIMES: Sequence[int] = (2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41)
+SMALL_PRIMES = [2, 3, 5, 7, 11, 13, 17, 19, 23]
 
 
 def gcd(a: int, b: int) -> int:
-    """Najwiekszy wspolny dzielnik liczony klasycznym algorytmem Euklidesa."""
+    """Najwiekszy wspolny dzielnik."""
 
     while b:
         a, b = b, a % b
-        return abs(a)
+    return a
 
 
 def egcd(a: int, b: int) -> tuple[int, int, int]:
-    """Rozszerzony algorytm Euklidesa zwracajacy (g, x, y) z rownania ax + by = g."""
+    """Rozszerzony algorytm Euklidesa: zwraca (g, x, y) takie, że ax + by = g."""
 
     if b == 0:
-        return (a, 1, 0)
+        return a, 1, 0
     g, x1, y1 = egcd(b, a % b)
     x = y1
     y = x1 - (a // b) * y1
-    return (g, x, y)
+    return g, x, y
 
 
 def modinv(a: int, m: int) -> int:
-    """Odwrotnosc modularna istnieje tylko gdy gcd(a, m) == 1."""
+    """Odwrotnosc modularna: liczba x taka, ze a*x ≡ 1 (mod m)."""
 
     g, x, _ = egcd(a, m)
     if g != 1:
@@ -66,7 +45,7 @@ def modinv(a: int, m: int) -> int:
 
 
 def modexp(base: int, exp: int, modulus: int) -> int:
-    """Potegowanie modularne metodą square-and-multiply (bezpiecznie i wydajnie)."""
+    """Potegowanie modularne (square-and-multiply)."""
 
     if modulus == 1:
         return 0
@@ -86,30 +65,30 @@ def modexp(base: int, exp: int, modulus: int) -> int:
 
 
 def is_probable_prime(n: int, k: int = 20) -> bool:
-    """Probabilistyczny test Millera-Rabina ze specjalnym traktowaniem malych liczb."""
+    """Probabilistyczny test Millera-Rabina z obsluga malych liczb."""
 
     if n < 2:
         return False
     if n in SMALL_PRIMES:
         return True
-    if any((n % p) == 0 for p in SMALL_PRIMES):
-        return False
-    if n % 2 == 0:
-        return False
+    for p in SMALL_PRIMES:
+        if n % p == 0:
+            return False
 
+    # zapis n-1 jako d * 2^r
+    r = 0
     d = n - 1
-    s = 0
     while d % 2 == 0:
         d //= 2
-        s += 1
+        r += 1
 
     rng = random.SystemRandom()
     for _ in range(k):
-        a = rng.randrange(2, n - 1)
+        a = rng.randrange(2, n - 2)
         x = modexp(a, d, n)
         if x == 1 or x == n - 1:
             continue
-        for _ in range(s - 1):
+        for _ in range(r - 1):
             x = modexp(x, 2, n)
             if x == n - 1:
                 break
@@ -119,30 +98,45 @@ def is_probable_prime(n: int, k: int = 20) -> bool:
 
 
 def generate_prime(bits: int) -> int:
-    """Generator liczb pierwszych o zadanej dlugosci bitowej z wymuszeniem parzystosci."""
+    """Losowanie liczby pierwszej o zadanej liczbie bitow."""
 
-    if bits < 2:
-        raise ValueError("Minimalna dlugosc to 2 bity")
     rng = random.SystemRandom()
     while True:
-        candidate = rng.getrandbits(bits)
-        candidate |= (1 << (bits - 1))
-        candidate |= 1
+        # ustawiamy najwyzszy bit i wymuszamy nieparzystosc
+        candidate = rng.getrandbits(bits) | (1 << (bits - 1)) | 1
         if is_probable_prime(candidate):
             return candidate
 
 
 # ---------------------------------------------------------------------------
-# Generowanie klucza RSA (zasady SOLID: osobna klasa za to odpowiada)
+# Struktura na klucz RSA
+# ---------------------------------------------------------------------------
+
+@dataclass
+class RSAKey:
+    p: int
+    q: int
+    n: int
+    phi: int
+    e: int
+    d: int
+
+    @property
+    def bit_length(self) -> int:
+        return self.n.bit_length()
+
+
+# ---------------------------------------------------------------------------
+# Generowanie klucza RSA
 # ---------------------------------------------------------------------------
 
 
 class RSAKeyGenerator:
-    """Klasa przygotowujaca pary kluczy RSA o zadanym rozmiarze."""
+    """Klasa generujaca pary kluczy RSA o zadanym rozmiarze."""
 
     def __init__(self, bits: int = 768, e_choice: int = 65537) -> None:
         if bits < 128:
-            raise ValueError("Do labu potrzebujemy przynajmniej 128 bitow")
+            raise ValueError("Potrzebujemy przynajmniej 128 bitow")
         self.bits = bits
         self.e_choice = e_choice
         self.rng = random.SystemRandom()
@@ -160,103 +154,88 @@ class RSAKeyGenerator:
         other = self.bits - half
         p = generate_prime(half)
         q = generate_prime(other)
-        while p == q:
+        while q == p:
             q = generate_prime(other)
         return p, q
 
     def _select_exponent(self, phi: int) -> int:
-        """e musi byc wzglednie pierwsze z phi, aby istnial klucz prywatny."""
+        """Dobor e tak, aby gcd(e, phi) == 1."""
 
-        candidates = []
-        if self.e_choice is not None:
-            candidates.append(self.e_choice)
-        candidates.extend([3, 5, 17, 257, 65537])
+        candidates = [self.e_choice, 3, 5, 17, 257, 65537]
         for candidate in candidates:
-            if candidate is None or candidate < 3:
-                continue
-            if gcd(candidate, phi) == 1:
-                # W praktyce najczesciej wybiera sie 65537 ze wzgledu na szybkosc oraz bezpieczenstwo.
+            if 1 < candidate < phi and gcd(candidate, phi) == 1:
                 return candidate
         while True:
             candidate = self.rng.randrange(3, phi - 1)
-            if candidate % 2 == 0:
-                candidate += 1
             if gcd(candidate, phi) == 1:
                 return candidate
 
 
 # ---------------------------------------------------------------------------
-# Kodowanie blokow tekstowych jako liczb calkowitych
+# Kodowanie blokow tekstu na liczby i z powrotem
 # ---------------------------------------------------------------------------
 
 
 class BlockCodec:
-    """Obsługa konwersji tekst <-> bloki liczbowe o stalym rozmiarze."""
+    """Koduje bloki po 10 znakow jako liczby i odwrotnie."""
 
     def __init__(self, block_len: int = 10) -> None:
         self.block_len = block_len
 
     def split_text(self, text: str) -> List[str]:
-        """Zwraca bloki po block_len znakow, ostatni blok wypelnia spacjami."""
+        """Dzieli tekst na bloki block_len; ostatni dopelnia spacjami."""
 
         blocks: List[str] = []
         for i in range(0, len(text), self.block_len):
-            chunk = text[i : i + self.block_len]
-            if len(chunk) < self.block_len:
-                chunk = chunk.ljust(self.block_len)
-            blocks.append(chunk)
+            block = text[i : i + self.block_len]
+            if len(block) < self.block_len:
+                block = block.ljust(self.block_len)
+            blocks.append(block)
         if not blocks:
             blocks.append(" " * self.block_len)
         return blocks
 
     def block_to_int(self, block: str) -> int:
-        """Kodowanie UTF-8 -> int. Przy stalym rozmiarze odwzorowanie jest bijekcja."""
+        """Blok (10 znakow) -> liczba."""
 
         data = block.encode("utf-8")
         if len(data) != self.block_len:
-            raise ValueError("Blok musi miec dokladnie block_len bajtow")
-        # Przy 10 bajtach otrzymujemy maksymalnie 80 bitow, co jest znacznie mniej niz 768 bitow n,
-        # wiec typowy blok zawsze spelni warunek m < n.
+            raise ValueError("Blok musi miec dokladnie block_len bajtow (ASCII)")
         return int.from_bytes(data, byteorder="big")
 
     def int_to_block(self, value: int) -> str:
-        """Odwrotna konwersja: liczba -> bajty -> tekst."""
+        """Liczba -> blok znakow o dlugosci block_len."""
 
         data = value.to_bytes(self.block_len, byteorder="big")
-        return data.decode("utf-8")
-
-    def join_blocks(self, blocks: Sequence[str]) -> str:
-        """Laczy bloki w pojedynczy lancuch bez usuwania wypelnien."""
-
-        return "".join(blocks)
+        return data.decode("utf-8", errors="replace")
 
 
 # ---------------------------------------------------------------------------
-# Silnik RSA odpowiadajacy za szyfrowanie i deszyfrowanie
+# Silnik RSA operujacy na blokach
 # ---------------------------------------------------------------------------
 
 
 class RSAEngine:
-    """Klasa wykonujaca operacje RSA na blokach z wykorzystaniem zadanego klucza."""
+    """Szyfrowanie i deszyfrowanie blokow tekstu."""
 
     def __init__(self, key: RSAKey, codec: BlockCodec) -> None:
         self.key = key
         self.codec = codec
 
     def encrypt_block(self, m: int) -> int:
-        """Pojedynczy blok: sprawdzamy 0 <= m < n, potem potegujemy modularnie."""
+        """Sprawdza 0 <= m < n, potem wylicza c = m^e mod n."""
 
         if not 0 <= m < self.key.n:
-            raise ValueError("Warunek m < n jest konieczny, inaczej tracimy informacje")
+            raise ValueError("Warunek m < n musi byc spelniony")
         return modexp(m, self.key.e, self.key.n)
 
     def decrypt_block(self, c: int) -> int:
-        """Deszyfrowanie pojedynczego bloku."""
+        """Zwraca m = c^d mod n."""
 
         return modexp(c, self.key.d, self.key.n)
 
     def encrypt_text(self, text: str) -> List[int]:
-        """Konwersja tekstu do blokow liczbowych, a nastepnie szyfrowanie kazdego z nich."""
+        """Tekst -> bloki -> szyfrogramy."""
 
         cipher_blocks: List[int] = []
         for block in self.codec.split_text(text):
@@ -265,54 +244,52 @@ class RSAEngine:
         return cipher_blocks
 
     def decrypt_blocks(self, cipher_blocks: Sequence[int]) -> str:
-        """Deszyfruje liste liczb, zamienia na tekst i laczy bloki."""
+        """Lista szyfrogramow -> tekst."""
 
         blocks: List[str] = []
         for c in cipher_blocks:
             m = self.decrypt_block(c)
             blocks.append(self.codec.int_to_block(m))
-        return self.codec.join_blocks(blocks)
+        return "".join(blocks)
 
 
 # ---------------------------------------------------------------------------
-# Obsluga plikow: osobna klasa dla czytania/zapisu (Single Responsibility)
+# Obsluga plikow
 # ---------------------------------------------------------------------------
 
 
 class RSAFileManager:
-    """Odpowiada za pliki plain.txt, cipher.txt i decrypted.txt."""
+    """Czytanie i zapisywanie plikow plain.txt / cipher.txt / decrypted.txt."""
 
-    def __init__(self, plain: str = "plain.txt", cipher: str = "cipher.txt", decrypted: str = "decrypted.txt") -> None:
-        self.plain_path = Path(plain)
-        self.cipher_path = Path(cipher)
-        self.decrypted_path = Path(decrypted)
-        self.sample_text = (
-            "Sample plaintext for the RSA lab.\n"
-            "Create your own plain.txt to experiment with different messages."
-        )
+    def __init__(self, base_dir: Path | None = None) -> None:
+        self.base_dir = base_dir or Path(".")
+        self.plain_path = self.base_dir / "plain.txt"
+        self.cipher_path = self.base_dir / "cipher.txt"
+        self.decrypted_path = self.base_dir / "decrypted.txt"
 
     def ensure_plaintext(self) -> None:
-        """Jesli plain.txt nie istnieje tworzymy przykladowy plik, aby aplikacja byla samowystarczalna."""
+        """Tworzy prosty plik plain.txt, jesli jeszcze nie istnieje."""
 
         if not self.plain_path.exists():
-            self.plain_path.write_text(self.sample_text, encoding="utf-8")
+            self.plain_path.write_text("This file demon\nRSA laboratory exercise.\n", encoding="utf-8")
 
     def read_plaintext(self) -> str:
         return self.plain_path.read_text(encoding="utf-8")
 
     def write_ciphertext(self, cipher_blocks: Sequence[int]) -> None:
-        with self.cipher_path.open("w", encoding="utf-8") as fh:
-            for block in cipher_blocks:
-                fh.write(f"{block}\n")
+        with self.cipher_path.open("w", encoding="utf-8") as f:
+            for c in cipher_blocks:
+                f.write(f"{c}\n")
 
     def read_ciphertext(self) -> List[int]:
+        if not self.cipher_path.exists():
+            return []
         blocks: List[int] = []
-        with self.cipher_path.open("r", encoding="utf-8") as fh:
-            for line in fh:
+        with self.cipher_path.open("r", encoding="utf-8") as f:
+            for line in f:
                 line = line.strip()
-                if not line:
-                    continue
-                blocks.append(int(line))
+                if line:
+                    blocks.append(int(line))
         return blocks
 
     def write_decrypted(self, text: str) -> None:
@@ -320,51 +297,47 @@ class RSAFileManager:
 
 
 # ---------------------------------------------------------------------------
-# Eksperymenty wymagane w instrukcji laboratoryjnej
+# Eksperymenty do sprawozdania
 # ---------------------------------------------------------------------------
 
 
 def experiment_m_ge_n(engine: RSAEngine) -> None:
-    """Pokazuje, ze RSA zawsze dziala modulo n i dlatego wymagamy m < n."""
+    """Krotki test z przypadkiem m >= n."""
 
     n = engine.key.n
     m = n + 1
     c = modexp(m, engine.key.e, n)
     m_back = modexp(c, engine.key.d, n)
-    print("[Eksperyment m >= n]")
-    print(f"m = n + 1 = {m}")
-    print(f"c = m^e mod n = {c}")
-    print(f"m_back = c^d mod n = {m_back}")
-    print("Odzyskujemy tylko m mod n, wiec nadmiarowe informacje przepadaja.\n")
+
+    print("\nEksperyment: m >= n")
+    print("m =", m)
+    print("c =", c)
+    print("m' =", m_back)
 
 
 def experiment_identical_blocks(engine: RSAEngine) -> None:
-    """Demonstracja deterministycznosci tekstbookowego RSA."""
+    """Sprawdzenie, czy powtarzajace sie bloki daja ten sam szyfrogram."""
 
     repeating_block = "HELLO_RSA!"  # dokladnie 10 znakow
     plaintext = repeating_block * 3
     cipher_blocks = engine.encrypt_text(plaintext)
-    print("[Eksperyment identyczne bloki]")
-    print(f"Plik testowy sklada sie z bloku '{repeating_block}' powtorzonego 3 razy")
-    print("Szyfrogramy (w postaci liczb calkowitych):")
+
+    print("\nEksperyment: identyczne bloki")
     for idx, block in enumerate(cipher_blocks, 1):
-        print(f"  Blok {idx}: {block}")
-    print("Kazdy szyfrogram jest identyczny, bo czyste RSA nie dodaje losowosci.\n")
+        print(f"blok {idx}: {block}")
 
 
 # ---------------------------------------------------------------------------
-# Uwaga o OAEP/paddingu (tylko komentarz)
+# Uwaga o OAEP / paddingu (krotka notatka)
 # ---------------------------------------------------------------------------
 
-# Deterministyczne RSA zdradza wzorce: jesli napastnik widzi takie same bloki
-# szyfrogramu, to wie ze odpowiadaja im takie same bloki jawne. Schematy paddingu
-# takie jak OAEP dodaja losowosc i strukture do danych zanim zostana podniesione
-# do potegi. Ten dodatek sprawia, ze nawet ten sam komunikat logiczny daje inne
-# bloki liczbowe, co utrudnia analiza wzorcow i zapewnia poufnosc semantyczna.
+# W praktyce trzeba dolaczac losowy padding (np. OAEP), tak aby dwa identyczne
+# bloki jawne nie dawaly tych samych szyfrogramow. Tutaj tego nie robimy,
+# bo na laboratorium wystarcza prosty, podrecznikowy wariant RSA.
 
 
 # ---------------------------------------------------------------------------
-# Funkcja main laczaca wszystkie elementy
+# Funkcja main
 # ---------------------------------------------------------------------------
 
 
@@ -378,25 +351,19 @@ def main() -> None:
     file_manager.ensure_plaintext()
     plaintext = file_manager.read_plaintext()
 
-    print("Wygenerowano klucz RSA:")
-    print(f"  dlugosc n (bity): {key.bit_length}")
-    print(f"  publiczny wykladnik e: {key.e}")
+    print("Klucz RSA:")
+    print(f"  |n| = {key.bit_length} bitow")
 
     cipher_blocks = engine.encrypt_text(plaintext)
     file_manager.write_ciphertext(cipher_blocks)
-    print(f"Zaszyfrowano {len(cipher_blocks)} blokow i zapisano do {file_manager.cipher_path}")
 
     cipher_from_file = file_manager.read_ciphertext()
     decrypted = engine.decrypt_blocks(cipher_from_file)
     file_manager.write_decrypted(decrypted)
-    print(f"Odszyfrowane bloki zapisano do {file_manager.decrypted_path}")
 
     original_clean = plaintext.rstrip()
     decrypted_clean = decrypted.rstrip()
-    success = original_clean == decrypted_clean
-    print("Czy teksty sa identyczne (po usunieciu koncowych spacji)?", success)
-    print("Podglad oryginalu:", original_clean[:40])
-    print("Podglad deszyfr.:", decrypted_clean[:40])
+    print("Tekst oryginalny i odszyfrowany sa takie same:", original_clean == decrypted_clean)
 
     experiment_m_ge_n(engine)
     experiment_identical_blocks(engine)
@@ -404,4 +371,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
